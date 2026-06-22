@@ -10,6 +10,29 @@ typedef struct
     ssize_t input_length;
 } InputBuffer;
 
+typedef enum
+{
+    META_COMMAND_SUCCESS,
+    META_COMMAND_UNRECOGNIZED_COMMAND
+} MetaCommandResult;
+
+typedef enum
+{
+    PREPARE_SUCCESS,
+    PREPARE_UNRECOGNIZED_STATEMENT
+} PrepareResult;
+
+typedef enum
+{
+    STATEMENT_INSERT,
+    STATEMENT_SELECT
+} StatementType;
+
+typedef struct
+{
+    StatementType type;
+} Statement;
+
 InputBuffer* new_input_buffer()
 {
     InputBuffer* input_buffer = (InputBuffer*)malloc(sizeof(InputBuffer));
@@ -54,11 +77,30 @@ int main(int argc, char *argv[])
 
         if (strcmp(input_buffer->buffer, ".exit")==0)
         {
-            close_input_buffer(input_buffer);
-            exit(EXIT_SUCCESS);
-        } else
-        {
-            printf("Unregnized command %s:", input_buffer->buffer);
+            if (input_buffer->buffer[0]=='.')
+            {
+                switch (do_meta_command(input_buffer))
+                {
+                    case META_COMMAND_SUCCESS:
+                    continue;
+                case META_COMMAND_UNRECOGNIZED_COMMAND:
+                    printf("Unrecognized command `%s'\n", input_buffer->buffer);
+                    continue;
+                }
+            }
+
+            Statement statement;
+
+            switch (prepare_statement(input_buffer, &statement))
+            {
+                case(PREPARE_SUCCESS):
+                break;
+                case PREPARE_UNRECOGNIZED_STATEMENT:
+                printf("Unrecognized keyword `%s'\n", input_buffer->buffer);
+                continue;
+            }
+            execute_statement(&statement);
+            printf("Executed!");
         }
     }
 }
