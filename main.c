@@ -3,6 +3,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define COLUMN_USER_SIZE 32
+#define COLUMN_EMAIL_SIZE 255
+
+#define size_of_attribute(Struct, Attribute) sizeof(((Struct*)0)->Attribute)
+
+typedef struct
+{
+    __uint32_t id;
+    char username[COLUMN_USER_SIZE];
+    char email[COLUMN_EMAIL_SIZE];
+} Row;
+
 typedef struct
 {
     char* buffer;
@@ -19,7 +31,8 @@ typedef enum
 typedef enum
 {
     PREPARE_SUCCESS,
-    PREPARE_UNRECOGNIZED_STATEMENT
+    PREPARE_UNRECOGNIZED_STATEMENT,
+    PREPARE_SYNTAX_ERROR
 } PrepareResult;
 
 typedef enum
@@ -31,6 +44,7 @@ typedef enum
 typedef struct
 {
     StatementType type;
+    Row row_to_insert;
 } Statement;
 
 InputBuffer* new_input_buffer()
@@ -83,6 +97,12 @@ PrepareResult prepare_statement(InputBuffer* input_buffer, Statement* statement)
     if (strncmp(input_buffer->buffer, "insert", 6)==0)
     {
         statement->type = STATEMENT_INSERT;
+        int args_assigned = sscanf(
+            input_buffer->buffer, "insert %d %s %s", &(statement->row_to_insert.id), statement->row_to_insert.username,statement->row_to_insert.email);
+        if (args_assigned<3)
+        {
+            return PREPARE_SYNTAX_ERROR;
+        }
         return PREPARE_SUCCESS;
     }
     if (strcmp(input_buffer->buffer, "select")==0)
