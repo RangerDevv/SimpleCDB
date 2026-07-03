@@ -40,6 +40,12 @@ typedef enum
     STATEMENT_SELECT
 } StatementType;
 
+typedef enum
+{
+    EXECUTE_SUCCESS,
+    EXECUTE_TABLE_FULL
+} ExecuteResult;
+
 typedef struct
 {
     StatementType type;
@@ -78,6 +84,31 @@ void deserialize_row(void* source, Row* destination)
     memcpy(&(destination->id), source + ID_OFFSET, ID_SIZE);
     memcpy(&(destination->username), source + USERNAME_OFFSET, USERNAME_SIZE);
     memcpy(&(destination->email), source + EMAIL_OFFSET, EMAIL_SIZE);
+}
+
+const __uint32_t PAGE_SIZE = 4096;
+#define TABLE_MAX_PAGES 100
+const __uint32_t ROWS_PER_PAGE = PAGE_SIZE / ROW_SIZE;
+const __uint32_t TABLE_MAX_ROWS = ROWS_PER_PAGE * TABLE_MAX_PAGES;
+
+typedef struct
+{
+    __uint32_t num_rows;
+    void* pages[TABLE_MAX_PAGES];
+} Table;
+
+void* row_slot(Table* table, __uint32_t row_num)
+{
+    __uint32_t page_num = row_num / ROWS_PER_PAGE;
+    void* page = table->pages[page_num];
+    if (page == NULL)
+    {
+        page = table->pages[page_num] = malloc(PAGE_SIZE);
+    }
+
+    __uint32_t row_offset = page_num * ROWS_PER_PAGE;
+    __uint32_t byte_offset = row_offset * ROW_SIZE;
+    return page + byte_offset;
 }
 
 void print_prompt() {printf("db >");}
@@ -136,23 +167,66 @@ PrepareResult prepare_statement(InputBuffer* input_buffer, Statement* statement)
     return PREPARE_UNRECOGNIZED_STATEMENT;
 }
 
-void execute_statement(Statement* statement)
+ExecuteResult execute_insert(Statement* statement, Table* table)
+{
+    if (table->num_rows >= TABLE_MAX_ROWS)
+    {
+        return EXECUTE_TABLE_FULL;
+    }
+
+    Row* row_to_insert = &(statement->row_to_insert);
+
+    serialize_row(row_to_insert, row_slot(table,table->num_rows));
+    table->num_rows++;
+    return EXECUTE_SUCCESS;
+}
+
+ExecuteResult execute_select(Statement* statement, Table* table)
+{
+    Row row;
+    for (int i=0; i<table->num_rows; i++)
+    {
+        deserialize_row(row_slot(table,i), &row);
+        print_row(&row);
+    }
+    return EXECUTE_SUCCESS;
+}
+
+ExecuteResult execute_statement(Statement* statement, Table* table)
 {
     switch (statement->type)
     {
         case (STATEMENT_INSERT):
-            printf("insert statement");
-            break;
+            return execute_insert(statement,table);
         case (STATEMENT_SELECT):
-            printf("select statement");
-            break;
+            return execute_select(statement,table);
     }
+}
+
+Table* new_table()
+{
+    Table* table = (Table*)malloc(sizeof(Table));
+    table->num_rows = 0;
+    for (int i=0; i<TABLE_MAX_PAGES; i++)
+    {
+        table->pages[i] = NULL;
+    }
+    return table;
+}
+
+void free_table(Table* table)
+{
+    for (int i=0; table->pages[i]; i++)
+    {
+        free(table->pages[i]);
+    }
+    free(table);
 }
 
 int main(int argc, char *argv[])
 {
+    Table* table = new_table();
     InputBuffer* input_buffer = new_input_buffer();
-
     while (true)
     {
         print_prompt();
@@ -162,7 +236,7 @@ int main(int argc, char *argv[])
         {
             switch (do_meta_command(input_buffer))
             {
-                case META_COMMAND_SUCCESS:
+            case META_COMMAND_SUCCESS:
                 continue;
             case META_COMMAND_UNRECOGNIZED_COMMAND:
                 printf("Unrecognized command `%s'\n", input_buffer->buffer);
